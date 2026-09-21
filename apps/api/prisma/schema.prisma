@@ -1,0 +1,166 @@
+// MIYU Flow Spa — initial schema. Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  employee     Employee?
+  createdAt    DateTime @default(now())
+}
+
+model Employee {
+  id           String   @id @default(uuid())
+  userId       String?  @unique
+  user         User?    @relation(fields: [userId], references: [id])
+  firstName    String
+  lastName     String
+  photoUrl     String?
+  specialty    String?
+  active       Boolean  @default(true)
+
+  services     EmployeeService[]
+  workingHours EmployeeWorkingHours[]
+  daysOff      EmployeeDayOff[]
+  breaks       EmployeeBreak[]
+  bookings     Booking[]
+}
+
+model ServiceCategory {
+  id       String    @id @default(uuid())
+  name     String    // e.g. "Maniküre", "Headspa"
+  order    Int       @default(0)
+  services Service[]
+}
+
+model Service {
+  id            String   @id @default(uuid())
+  categoryId    String
+  category      ServiceCategory @relation(fields: [categoryId], references: [id])
+  name          String
+  description   String?
+  priceCents    Int
+  durationMin   Int
+  active        Boolean  @default(true)
+
+  employees     EmployeeService[]
+  addons        Addon[]
+  bookingLines  BookingService[]
+}
+
+model Addon {
+  id                String   @id @default(uuid())
+  serviceId         String
+  service           Service  @relation(fields: [serviceId], references: [id])
+  name              String
+  extraPriceCents   Int
+  extraDurationMin  Int      @default(0)
+}
+
+model EmployeeService {
+  employeeId String
+  serviceId  String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  service    Service  @relation(fields: [serviceId], references: [id])
+
+  @@id([employeeId, serviceId])
+}
+
+model EmployeeWorkingHours {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  weekday    Int      // 0=Sunday..6=Saturday
+  startTime  String   // "10:00"
+  endTime    String   // "20:00"
+}
+
+model EmployeeDayOff {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  date       DateTime
+  reason     String?
+}
+
+model EmployeeBreak {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  weekday    Int
+  startTime  String
+  endTime    String
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  phone     String
+  email     String
+  note      String?
+  bookings  Booking[]
+  createdAt DateTime @default(now())
+}
+
+model Booking {
+  id         String        @id @default(uuid())
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id])
+  employeeId String
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  startTime  DateTime
+  endTime    DateTime
+  status     BookingStatus @default(PENDING)
+  totalPriceCents   Int
+  totalDurationMin  Int
+  message    String?
+  services   BookingService[]
+  createdAt  DateTime      @default(now())
+
+  // Prevents two confirmed bookings for the same employee overlapping.
+  // Enforce the overlap check in application logic within a DB transaction;
+  // add an exclusion constraint via raw SQL migration for hard DB-level safety.
+  @@index([employeeId, startTime, endTime])
+}
+
+model BookingService {
+  id         String   @id @default(uuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id])
+  serviceId  String
+  service    Service  @relation(fields: [serviceId], references: [id])
+  addonIds   String[] // Addon ids selected for this line
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  type      String   // e.g. "BOOKING_CONFIRMATION"
+  recipient String   // email address
+  payload   Json
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+}
